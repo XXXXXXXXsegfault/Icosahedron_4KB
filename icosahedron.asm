@@ -471,13 +471,7 @@ movss %xmm0,(%rax)
 movss %xmm3,8(%rax)
 ret
 
-@T_paint
-mov $5,%ecx
-sub $32,%rsp
-push %rcx
-.dllcall "kernel32.dll" "Sleep"
-add $40,%rsp
-
+@do_rotate
 mov @_$DATA+25,%al
 test %al,%al
 je @T_paint_K
@@ -526,21 +520,19 @@ add $16,%rax
 call @rotate_y2
 movb $1,@_$DATA+24
 @T_paint_K
+ret
 
-mov $0,%al
-xchg %al,@_$DATA+24
-test %al,%al
-je @T_paint
+@paint_all
 
-sub $32,%rsp
-mov $@_$DATA+4096,%rcx
-xor %edx,%edx
-mov $640000,%r8d
-push %r8
-push %rdx
-push %rcx
-.dllcall "msvcrt.dll" "memset"
-add $24,%rsp
+
+mov $80000,%ecx
+xor %eax,%eax
+mov $@_$DATA+4096,%rdx
+@T_paint_clear
+mov %rax,(%rdx)
+add $8,%rdx
+dec %ecx
+jne @T_paint_clear
 
 mov $@triangle_op,%rax
 @T_paint_loop_X1
@@ -569,40 +561,12 @@ pop %rcx
 pop %rax
 
 @T_paint_loop_X4
-test $0x40,%cl
-je @T_paint_loop_X5
 call @triangle_paint
-@T_paint_loop_X5
 inc %rax
 jmp @T_paint_loop_X1
 @T_paint_loop_X2
+ret
 
-mov @_$DATA+16,%rcx
-mov $640000,%edx
-mov $@_$DATA+4096,%r8
-push %r8
-push %rdx
-push %rcx
-.dllcall "gdi32.dll" "SetBitmapBits"
-add $24,%rsp
-
-mov @_$DATA+0,%rcx
-xor %edx,%edx
-mov %edx,%r8d
-mov $400,%r9d
-pushq $0xcc0020
-push %rdx
-push %rdx
-pushq @_$DATA+8
-push %r9
-push %r9
-push %r8
-push %rdx
-push %rcx
-.dllcall "gdi32.dll" "BitBlt"
-add $104,%rsp
-
-jmp @T_paint
 
 @WndProc
 push %rbx
@@ -618,20 +582,67 @@ mov %rcx,(%rsp)
 @WndProc_DESTROY
 cmp $15,%edx
 jne @WndProc_PAINT
-sub $80,%rsp
-mov %rcx,%rbx
-mov %rsp,%rdx
-push %rdx
-push %rcx
+push %rbp
+mov %rsp,%rbp
+sub $128,%rsp
+and $0xf0,%spl
+
+lea 32(%rsp),%rdx
 .dllcall "user32.dll" "BeginPaint"
-mov %rbx,%rcx
-lea 16(%rsp),%rdx
-mov %rcx,(%rsp)
-mov %rdx,8(%rsp)
+mov %rax,112(%rsp)
+mov %rax,%rcx
+.dllcall "gdi32.dll" "CreateCompatibleDC"
+mov %rax,104(%rsp)
+mov 112(%rsp),%rcx
+mov $400,%edx
+mov %edx,%r8d
+.dllcall "gdi32.dll" "CreateCompatibleBitmap"
+mov %rax,96(%rsp)
+mov %rax,%rdx
+mov 104(%rsp),%rcx
+.dllcall "gdi32.dll" "SelectObject"
+call @paint_all
+mov 96(%rsp),%rcx
+mov $640000,%edx
+mov $@_$DATA+4096,%r8
+.dllcall "gdi32.dll" "SetBitmapBits"
+mov 112(%rsp),%rcx
+xor %edx,%edx
+mov %edx,%r8d
+mov $400,%r9d
+push %rdx
+pushq $0xcc0020
+push %rdx
+push %rdx
+pushq 136(%rsp)
+push %r9
+sub $32,%rsp
+.dllcall "gdi32.dll" "BitBlt"
+add $80,%rsp
+mov 104(%rsp),%rcx
+.dllcall "gdi32.dll" "DeleteObject"
+mov 112(%rsp),%rcx
+.dllcall "gdi32.dll" "DeleteDC"
+lea 32(%rsp),%rdx
+mov 8(%rbp),%rcx
 .dllcall "user32.dll" "EndPaint"
-add $96,%rsp
-movb $1,@_$DATA+24
+mov %rbp,%rsp
+pop %rbp
+
+jmp @WndProc_KEYUP
 @WndProc_PAINT
+
+cmp $275,%edx
+jne @WndProc_TIMER
+call @do_rotate
+sub $32,%rsp
+xor %edx,%edx
+xor %r8d,%r8d
+.dllcall "user32.dll" "InvalidateRect"
+add $32,%rsp
+jmp @WndProc_KEYUP
+@WndProc_TIMER
+
 cmp $256,%edx
 jne @WndProc_KEYDOWN
 cmp $0x25,%r8d
@@ -670,10 +681,12 @@ pop %rbx
 ret
 
 .entry
-movl $0x3f800000,@_$DATA+32
-movl $0x3f800000,@_$DATA+52
-movl $0x3f800000,@_$DATA+72
+mov $0x3f800000,%eax
+mov %eax,@_$DATA+32
+mov %eax,@_$DATA+52
+mov %eax,@_$DATA+72
 sub $88,%rsp
+.dllcall "user32.dll" "SetProcessDPIAware"
 movq $80,(%rsp)
 movq $@WndProc,8(%rsp)
 movq $0,16(%rsp)
@@ -722,57 +735,21 @@ push %rcx
 test %rax,%rax
 je @Err
 mov %rax,%rcx
-mov %rcx,(%rsp)
-.dllcall "user32.dll" "GetDC"
-mov %rax,%rbx
-mov %rax,%rcx
-mov %rcx,(%rsp)
-.dllcall "gdi32.dll" "CreateCompatibleDC"
-mov %rax,%r12
-mov %rbx,%rcx
-mov $400,%edx
-mov %edx,%r8d
-mov %rcx,(%rsp)
-mov %rdx,8(%rsp)
-mov %r8,16(%rsp)
-.dllcall "gdi32.dll" "CreateCompatibleBitmap"
-mov %rax,%r13
-mov %rax,%rdx
-mov %r12,%rcx
-mov %rcx,(%rsp)
-mov %rdx,8(%rsp)
-.dllcall "gdi32.dll" "SelectObject"
-mov %rbx,@_$DATA+0
-mov %r12,@_$DATA+8
-mov %r13,@_$DATA+16
-xor %ecx,%ecx
-mov %ecx,%edx
-mov $@T_paint,%r8
-mov %ecx,%r9d
-mov %rcx,(%rsp)
-mov %rdx,8(%rsp)
-mov %r8,16(%rsp)
-mov %rcx,24(%rsp)
-mov %rcx,32(%rsp)
-mov %rcx,40(%rsp)
-.dllcall "kernel32.dll" "CreateThread"
+xor %edx,%edx
+mov $10,%r8d
+xor %r9d,%r9d
+.dllcall "user32.dll" "SetTimer"
 @MsgLoop
 lea 32(%rsp),%rcx
 xor %edx,%edx
 mov %edx,%r8d
 mov %edx,%r9d
-mov %rcx,(%rsp)
-mov %rdx,8(%rsp)
-mov %r8,16(%rsp)
-mov %r9,24(%rsp)
 .dllcall "user32.dll" "GetMessageA"
 cmp $0,%rax
-jl @Err
+jle @Err
 lea 32(%rsp),%rcx
-mov %rcx,(%rsp)
 .dllcall "user32.dll" "TranslateMessage"
 lea 32(%rsp),%rcx
-mov %rcx,(%rsp)
 .dllcall "user32.dll" "DispatchMessageA"
 jmp @MsgLoop
 
